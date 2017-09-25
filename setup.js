@@ -1,11 +1,13 @@
 const execa = require("execa");
 const Listr = require("Listr");
 const path = require("path");
-const fs = require("fs");
+const fs = require("fs-extra");
 const home = require("user-home");
 const sudo = require("sudo-prompt");
+const promisify = require("util").promisify;
 
 module.exports = setup;
+
 
 function setup(flags) {
   const tasks = new Listr([
@@ -19,30 +21,57 @@ function setup(flags) {
       skip: flags.skipService,
       task: () => installService(flags)
     },
-    {
-      title: "Install self-signed certificate for localhost",
-      skip: flags.skipCert,
-      task: (ctx, task) => installCert(flags).catch(err => task.skip())
-    },
-    {
-      title: "Install Safari extension",
-      task: () => installSafariExtension()
-    }
+    //{
+    //  title: "Install self-signed certificate for localhost",
+    //  skip: flags.skipCert,
+    //  task: (ctx, task) => installCert(flags).catch(err => task.skip())
+    //},
+    //{
+    //  title: "Install Safari extension",
+    //  task: () => installSafariExtension()
+    //}
   ]);
 
   return tasks.run();
 
   function createJoofDir(flags) {
-    return execa("mkdir", ["-p", flags.joofDir]).then(
-      fs.writeFileSync(
-        path.join(flags.joofDir, "global.js"),
-        'console.log("%cjoof is ready to go!", "color: green")',
-        "utf-8"
-      )
-    );
+    return fs.outputFile(
+      path.join(flags.joofDir, "global.js"), 
+      'console.log("%cjoof is ready to go!", "color: green")'
+    )
   }
 
   function installService(flags) {
+    const isOSX = /^darwin/.test(process.platform);
+
+    if (isOSX) {
+      return installServiceOSX(flags);
+    } else {
+      return installServiceWin(flags);
+    }
+  }
+
+  function installServiceWin(flags) {
+    var Service = require('node-windows').Service;
+    
+    // Create a new service object
+    var svc = new Service({
+      name:'Joof',
+      description: 'Joof allows you to add custom JavaScript or CSS to any webpage.',
+      script: flags.cliPath,
+    });
+    
+    // Listen for the "install" event, which indicates the
+    // process is available as a service.
+    svc.on('install',function(){
+      svc.start();
+    });
+    
+    svc.install();
+
+  }
+
+  function installServiceOSX(flags) {
     let plist = fs.readFileSync(
       path.join(__dirname, "support", "com.brnbw.joof.plist"),
       "utf-8"
